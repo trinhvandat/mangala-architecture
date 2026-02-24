@@ -1,0 +1,122 @@
+version: 1
+service:
+  name: mangala-authentication
+  package: org.mangala.authentication
+  runtime: spring-boot-3.4.x
+
+entrypoints:
+  main_class: src/main/java/org/mangala/authentication/MainApplication.java
+  web_controllers:
+    - src/main/java/org/mangala/authentication/auth/adapter/web/AuthController.java
+    - src/main/java/org/mangala/authentication/policy/adapter/web/InternalPolicyController.java
+
+architecture:
+  style: feature-first layered
+  layers:
+    - name: adapter_web
+      path_pattern: "*/adapter/web/*"
+      responsibility: transport layer, dto mapping
+    - name: usecase
+      path_pattern: "*/usecase/*"
+      responsibility: application logic orchestration
+    - name: domain
+      path_pattern: "*/domain/*"
+      responsibility: entities and business exceptions
+    - name: adapter_repository
+      path_pattern: "*/adapter/repository/*"
+      responsibility: data access via spring data jpa
+
+naming:
+  java:
+    field_case: camelCase
+    usecase_interface_suffix: UseCase
+    usecase_impl_suffix: UseCaseImpl
+    request_dto_suffix: RequestDTO
+    response_dto_suffix: ResponseDTO
+  database:
+    column_case: snake_case
+    migration_pattern: "V{N}__{description}.sql"
+
+security_and_permissions:
+  source_of_truth_tables:
+    - permissions
+    - roles
+    - role_permissions
+    - user_roles
+    - api_permissions
+    - policy_version
+  token_tables:
+    - refresh_tokens
+  external_auth_contracts:
+    - method: POST
+      path: /v1/authenticate/passkeys:complete
+      purpose: verify passkey assertion and issue signed access/refresh JWT tokens
+    - method: POST
+      path: /v1/auth/refresh
+      purpose: rotate refresh token and return a new access/refresh token pair
+      response_fields:
+        - accessToken
+        - refreshToken
+        - tokenType
+        - expiresIn
+        - refreshExpiresIn
+  jwt_contract:
+    access_token_claims:
+      - iss
+      - sub
+      - aud
+      - iat
+      - exp
+      - jti
+      - type
+      - email
+      - roles
+      - permissions
+      - amr
+    refresh_token_claims:
+      - iss
+      - sub
+      - aud
+      - iat
+      - exp
+      - jti
+      - type
+      - email
+    config_keys:
+      - application.authentication.jwt.secret
+      - application.authentication.jwt.issuer
+      - application.authentication.jwt.access-token-audience
+      - application.authentication.jwt.refresh-token-audience
+      - application.authentication.jwt.access-token-expiration-seconds
+      - application.authentication.jwt.refresh-token-expiration-seconds
+  internal_contracts_required_by_gateway:
+    - method: GET
+      path: /v1/internal/policies
+      purpose: full active policy snapshot for gateway cache load
+    - method: GET
+      path: /v1/internal/policies/version
+      purpose: lightweight version check for conditional reload
+  internal_policy_security:
+    mode: optional_mtls
+    config_keys:
+      - application.security.internal-api.mtls-enabled
+      - application.security.internal-api.subject-principal-regex
+      - application.security.internal-api.allowed-principals
+    authority: INTERNAL_POLICY_READ
+
+integration:
+  depends_on_modules:
+    - mangala-common-security
+    - mangala-exception
+  gateway_dependency:
+    service: mangala-gateway
+    contract_type: internal_http_api
+
+operational_rules:
+  if_changed_then_update_docs:
+    - src/main/resources/migration/
+    - internal policy api contract
+  required_docs:
+    - AGENTS.md
+    - docs/context-map.yaml
+    - docs/adr/
