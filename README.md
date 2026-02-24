@@ -1,0 +1,1 @@
+# mangala-architecture
