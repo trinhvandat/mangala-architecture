@@ -1,0 +1,87 @@
+@startuml balance-sync-sequence
+
+title Balance Sync Flow - Wallet Service
+
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+participant "Scheduler" as Scheduler
+participant "BalanceSyncService" as SyncService
+participant "Redis\n(Distributed Lock)" as Redis
+participant "WalletRepository" as WalletRepo
+participant "ChainAdapterResolver" as Resolver
+participant "EvmChainAdapter\n(Web3j)" as Adapter
+participant "Blockchain\nRPC" as RPC
+participant "WalletBalanceRepository" as BalanceRepo
+participant "KafkaPublisher" as Kafka
+
+== Scheduled Trigger (Every 5 minutes) ==
+
+Scheduler -> SyncService: syncAll()
+activate SyncService
+
+== Acquire Distributed Lock ==
+
+SyncService -> Redis: tryLock("balance-sync-lock", TTL=10min)
+alt Lock Acquired
+    Redis --> SyncService: true
+else Lock Not Acquired (another instance running)
+    Redis --> SyncService: false
+    SyncService --> Scheduler: skip (lock held by other)
+end
+
+== Fetch Active Wallets ==
+
+SyncService -> WalletRepo: findAllByIsActiveTrue()
+WalletRepo --> SyncService: List<WalletEntity>
+
+== Process Wallets in Batches ==
+
+loop For each batch of 100 wallets
+    loop For each wallet (with retry)
+
+        SyncService -> Resolver: getAdapter(chainType)
+        Resolver --> SyncService: EvmChainAdapter
+
+        == Fetch Native Balance ==
+
+        SyncService -> Adapter: getNativeBalance(address)
+        Adapter -> RPC: eth_getBalance
+        RPC --> Adapter: balance (wei)
+        Adapter --> SyncService: Balance
+
+        == Fetch ERC-20 Token Balances ==
+
+        loop For each token in tokens.json
+            SyncService -> Adapter: getErc20Balance(address, tokenAddr)
+            Adapter -> RPC: eth_call(balanceOf)
+            RPC --> Adapter: balance (raw)
+            Adapter --> SyncService: TokenBalance
+        end
+
+        == Persist Balances ==
+
+        SyncService -> BalanceRepo: upsert(walletId, balances)
+        BalanceRepo --> SyncService: saved
+
+        SyncService -> WalletRepo: updateLastSyncedAt(walletId)
+        WalletRepo --> SyncService: updated
+
+        == Publish Kafka Event ==
+
+        SyncService -> Kafka: publishBalanceUpdate(wallet, balances)
+        Kafka --> SyncService: ack
+
+    end
+end
+
+== Release Lock ==
+
+SyncService -> Redis: unlock()
+Redis --> SyncService: released
+
+SyncService --> Scheduler: SyncResult(processed, succeeded, failed)
+deactivate SyncService
+
+@enduml
