@@ -1,0 +1,95 @@
+# Wallet Service Context Map
+# Auto-synced from mangala-wallet-service repository
+# Last updated: 2025-02-25
+
+service:
+  name: mangala-wallet-service
+  version: 0.0.1-SNAPSHOT
+  port: 8081
+  status: active
+
+database:
+  type: postgresql
+  schema: wallet
+  migrations: flyway
+  tables:
+    - wallets
+    - tokens
+    - wallet_balances
+
+features:
+  - name: wallet-management
+    status: complete
+    endpoints:
+      - POST /api/v1/wallets
+      - GET /api/v1/wallets
+      - GET /api/v1/wallets/{id}
+      - DELETE /api/v1/wallets/{id}
+
+  - name: balance-sync
+    status: complete
+    sprint: 2
+    endpoints:
+      - GET /api/v1/wallets/{id}/balances
+      - POST /api/v1/wallets/{id}/sync
+    kafka:
+      produces:
+        - topic: balance.updates
+          schema: BalanceUpdateEvent
+
+chains:
+  supported:
+    - name: ethereum
+      chainId: 1
+      adapter: EvmChainAdapter
+    - name: bsc
+      chainId: 56
+      adapter: EvmChainAdapter
+    - name: polygon
+      chainId: 137
+      adapter: EvmChainAdapter
+    - name: arbitrum
+      chainId: 42161
+      adapter: EvmChainAdapter
+
+dependencies:
+  internal:
+    - name: mangala-common-security
+      purpose: JWT validation, security context
+    - name: mangala-exception
+      purpose: Standard exception handling
+
+  external:
+    - name: web3j
+      version: 5.0.0
+      purpose: Blockchain RPC interaction
+    - name: redisson
+      version: 3.27.2
+      purpose: Distributed locking
+    - name: spring-kafka
+      purpose: Event publishing
+
+configuration:
+  required:
+    - DB_HOST
+    - DB_USERNAME
+    - DB_PASSWORD
+  optional:
+    - INFURA_API_KEY
+    - ETH_RPC_URL
+    - BSC_RPC_URL
+    - POLYGON_RPC_URL
+    - ARBITRUM_RPC_URL
+    - REDIS_URL
+    - KAFKA_BOOTSTRAP_SERVERS
+
+error_codes:
+  - code: WAL-001
+    message: Wallet not found
+    http_status: 404
+  - code: WAL-002
+    message: Wallet already exists for this address and chain
+    http_status: 400
+  - code: WAL-003
+    message: Access denied to this wallet
+    http_status: 403

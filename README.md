@@ -28,6 +28,7 @@ Start by reading `CLAUDE.md` which provides structured instructions for loading 
 ## Services Documented
 
 - **Authentication** (`services/authentication/`) - User authentication, JWT tokens, RBAC
+- **Wallet** (`services/wallet/`) - Wallet management, balance sync, multi-chain EVM support
 
 ## Contributing
 
